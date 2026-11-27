@@ -45,6 +45,13 @@ namespace FaceRecognition.Services
             AddProfileWithSeed("Ayşe Demir", 98765);
         }
 
+        public void ResetToDefaults()
+        {
+            _profiles.Clear();
+            _profileIdCounter = 0;
+            SeedDefaultVolunteerProfiles();
+        }
+
         private void AddProfileWithSeed(string name, int seed)
         {
             _profileIdCounter++;

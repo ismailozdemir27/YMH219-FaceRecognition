@@ -7,15 +7,19 @@ using FaceRecognition.Models;
 namespace FaceRecognition.Services
 {
     /// <summary>
-    /// Haar Cascade tabanlı nesne yönelimli yüz algılama servisi.
-    /// Çoklu yüz tespiti, ölçeklendirme ve görsel kutu çizimlerini yönetir.
+    /// Haar Cascade tabanlı nesne yönelimli yüz, göz (canlılık tespiti) ve gülümseme algılama servisi.
+    /// Çoklu yüz tespiti, ölçeklendirme, liveness & anti-spoof ve görsel etiket çizimlerini yönetir.
     /// </summary>
     public class FaceDetectionService : IDisposable
     {
-        private CascadeClassifier? _cascade;
+        private CascadeClassifier? _faceCascade;
+        private CascadeClassifier? _eyeCascade;
+        private CascadeClassifier? _smileCascade;
         private bool _disposed = false;
 
-        public bool IsLoaded => _cascade != null && !_cascade.Empty();
+        public bool IsLoaded => _faceCascade != null && !_faceCascade.Empty();
+        public bool IsEyeLoaded => _eyeCascade != null && !_eyeCascade.Empty();
+        public bool IsSmileLoaded => _smileCascade != null && !_smileCascade.Empty();
         public string ModelPath { get; private set; } = string.Empty;
 
         // Algılama parametreleri
@@ -26,30 +30,37 @@ namespace FaceRecognition.Services
 
         public event Action<string>? OnError;
 
-        public FaceDetectionService(string? modelFileName = "haarcascade_frontalface_default.xml")
+        public FaceDetectionService(string? faceModelFileName = "haarcascade_frontalface_default.xml")
         {
-            LoadModel(modelFileName);
+            LoadModels(faceModelFileName);
         }
 
-        public bool LoadModel(string? fileName)
+        public bool LoadModels(string? faceFileName)
         {
-            string path = FindModelPath(fileName ?? "haarcascade_frontalface_default.xml");
+            bool okFace = LoadFaceModel(faceFileName ?? "haarcascade_frontalface_default.xml");
+            LoadAuxiliaryModels();
+            return okFace;
+        }
+
+        private bool LoadFaceModel(string fileName)
+        {
+            string path = FindModelPath(fileName);
             ModelPath = path;
 
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
-                OnError?.Invoke($"Haar Cascade model dosyası bulunamadı: {fileName}\nLütfen model dosyasının uygulama dizininde olduğundan emin olunuz.");
+                OnError?.Invoke($"Haar Cascade yüz modeli bulunamadı: {fileName}\nLütfen model dosyasının uygulama dizininde olduğundan emin olunuz.");
                 return false;
             }
 
             try
             {
-                _cascade?.Dispose();
-                _cascade = new CascadeClassifier(path);
+                _faceCascade?.Dispose();
+                _faceCascade = new CascadeClassifier(path);
 
-                if (_cascade.Empty())
+                if (_faceCascade.Empty())
                 {
-                    OnError?.Invoke("Model dosyası boş veya bozuk: " + path);
+                    OnError?.Invoke("Yüz model dosyası boş veya bozuk: " + path);
                     return false;
                 }
 
@@ -57,8 +68,34 @@ namespace FaceRecognition.Services
             }
             catch (Exception ex)
             {
-                OnError?.Invoke($"Model yüklenirken hata oluştu: {ex.Message}");
+                OnError?.Invoke($"Yüz modeli yüklenirken hata oluştu: {ex.Message}");
                 return false;
+            }
+        }
+
+        private void LoadAuxiliaryModels()
+        {
+            try
+            {
+                // Göz modeli (Canlılık / Anti-spoof için)
+                string eyePath = FindModelPath("haarcascade_eye.xml");
+                if (File.Exists(eyePath))
+                {
+                    _eyeCascade?.Dispose();
+                    _eyeCascade = new CascadeClassifier(eyePath);
+                }
+
+                // Gülümseme modeli (Mimik analizi için)
+                string smilePath = FindModelPath("haarcascade_smile.xml");
+                if (File.Exists(smilePath))
+                {
+                    _smileCascade?.Dispose();
+                    _smileCascade = new CascadeClassifier(smilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke($"Ek modeller (göz/gülümseme) yüklenirken uyarı: {ex.Message}");
             }
         }
 
@@ -132,7 +169,7 @@ namespace FaceRecognition.Services
 
                 Cv2.EqualizeHist(gray, gray);
 
-                return _cascade!.DetectMultiScale(
+                return _faceCascade!.DetectMultiScale(
                     image: gray,
                     scaleFactor: ScaleFactor,
                     minNeighbors: MinNeighbors,
@@ -149,6 +186,66 @@ namespace FaceRecognition.Services
         }
 
         /// <summary>
+        /// Yüz bölgesi üzerinde gözleri tespit eder (Canlılık analizi için).
+        /// </summary>
+        public Rect[] DetectEyes(Mat faceRegionGray)
+        {
+            if (!IsEyeLoaded || faceRegionGray == null || faceRegionGray.Empty()) return Array.Empty<Rect>();
+
+            try
+            {
+                // Yüzün sadece üst yarısında göz ara (performans ve doğruluk için)
+                int eyeAreaHeight = (int)(faceRegionGray.Height * 0.55);
+                var eyeRoi = new Rect(0, 0, faceRegionGray.Width, eyeAreaHeight);
+                using var eyeMat = new Mat(faceRegionGray, eyeRoi);
+
+                return _eyeCascade!.DetectMultiScale(
+                    image: eyeMat,
+                    scaleFactor: 1.15,
+                    minNeighbors: 3,
+                    flags: HaarDetectionTypes.ScaleImage,
+                    minSize: new OpenCvSharp.Size(12, 12),
+                    maxSize: new OpenCvSharp.Size(faceRegionGray.Width / 2, faceRegionGray.Height / 2)
+                );
+            }
+            catch
+            {
+                return Array.Empty<Rect>();
+            }
+        }
+
+        /// <summary>
+        /// Yüz bölgesi üzerinde gülümseme tespit eder (Mimik analizi için).
+        /// </summary>
+        public bool DetectSmile(Mat faceRegionGray)
+        {
+            if (!IsSmileLoaded || faceRegionGray == null || faceRegionGray.Empty()) return false;
+
+            try
+            {
+                // Ağız alt yarıda yer alır
+                int startY = (int)(faceRegionGray.Height * 0.45);
+                int h = faceRegionGray.Height - startY;
+                var mouthRoi = new Rect(faceRegionGray.Width / 6, startY, (faceRegionGray.Width * 2) / 3, h);
+                using var mouthMat = new Mat(faceRegionGray, mouthRoi);
+
+                var smiles = _smileCascade!.DetectMultiScale(
+                    image: mouthMat,
+                    scaleFactor: 1.35,
+                    minNeighbors: 6,
+                    flags: HaarDetectionTypes.ScaleImage,
+                    minSize: new OpenCvSharp.Size(18, 18)
+                );
+
+                return smiles.Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Kare içindeki yüz bölgesini normalize ederek (100x100 gri ölçekli ve histogramı eşitlenmiş) döndürür.
         /// </summary>
         public Mat? ExtractNormalizedFace(Mat originalImage, Rect faceBox)
@@ -157,7 +254,6 @@ namespace FaceRecognition.Services
 
             try
             {
-                // Kutunun görüntü sınırları içinde kalmasını sağla
                 Rect safeBox = new Rect(
                     Math.Max(0, faceBox.X),
                     Math.Max(0, faceBox.Y),
@@ -188,9 +284,9 @@ namespace FaceRecognition.Services
         }
 
         /// <summary>
-        /// Görüntü üzerine algılanan yüzlerin dikdörtgen çerçevelerini ve tanıma etiketlerini çizer.
+        /// Görüntü üzerine algılanan yüzlerin dikdörtgen çerçevelerini, tanıma etiketlerini, canlılık ve mimik rozetlerini çizer.
         /// </summary>
-        public void DrawFaceOverlays(Mat image, IReadOnlyList<DetectedFace> faces)
+        public void DrawFaceOverlays(Mat image, IReadOnlyList<DetectedFace> faces, bool showLiveness = true, bool showSmile = true)
         {
             if (image == null || image.Empty() || faces == null || faces.Count == 0) return;
 
@@ -200,7 +296,7 @@ namespace FaceRecognition.Services
                     ? new Scalar(34, 197, 94)   // Yeşil: Tanınan kişi
                     : new Scalar(239, 68, 68);  // Kırmızı: Bilinmeyen
 
-                // 1. Köşe stilli şık dikdörtgen çerçeve
+                // 1. Dikdörtgen sınırlayıcı kutu
                 Cv2.Rectangle(image, face.BoundingBox, boxColor, 2);
 
                 // 2. Üst bilgi etiketi (İsim & Güven)
@@ -209,7 +305,7 @@ namespace FaceRecognition.Services
                     : "Bilinmeyen Kişi";
 
                 var font = HersheyFonts.HersheySimplex;
-                double fontScale = 0.55;
+                double fontScale = 0.52;
                 int thickness = 1;
                 var textSize = Cv2.GetTextSize(labelText, font, fontScale, thickness, out int baseline);
 
@@ -217,10 +313,28 @@ namespace FaceRecognition.Services
                 OpenCvSharp.Point bgTopLeft = new OpenCvSharp.Point(face.BoundingBox.X, labelY - textSize.Height - 4);
                 OpenCvSharp.Point bgBottomRight = new OpenCvSharp.Point(face.BoundingBox.X + textSize.Width + 8, labelY + baseline);
 
-                // Etiket arka planı
                 Cv2.Rectangle(image, bgTopLeft, bgBottomRight, boxColor, -1);
-                // Etiket metni
                 Cv2.PutText(image, labelText, new OpenCvSharp.Point(face.BoundingBox.X + 4, labelY), font, fontScale, Scalar.White, thickness, LineTypes.AntiAlias);
+
+                // 3. Alt Rozetler (Canlılık & Gülümseme)
+                int badgeY = face.BoundingBox.Y + face.BoundingBox.Height + 16;
+                if (badgeY < image.Height - 8)
+                {
+                    int badgeX = face.BoundingBox.X;
+
+                    if (showLiveness)
+                    {
+                        string liveTag = face.IsLive ? "CANLI [OK]" : "BEKLENIYOR...";
+                        Scalar liveCol = face.IsLive ? new Scalar(34, 197, 94) : new Scalar(234, 179, 8);
+                        Cv2.PutText(image, liveTag, new OpenCvSharp.Point(badgeX, badgeY), font, 0.42, liveCol, 1, LineTypes.AntiAlias);
+                        badgeX += 105;
+                    }
+
+                    if (showSmile && face.IsSmiling)
+                    {
+                        Cv2.PutText(image, "GULUMSEME :)", new OpenCvSharp.Point(badgeX, badgeY), font, 0.42, new Scalar(251, 146, 60), 1, LineTypes.AntiAlias);
+                    }
+                }
             }
         }
 
@@ -229,8 +343,9 @@ namespace FaceRecognition.Services
             if (!_disposed)
             {
                 _disposed = true;
-                _cascade?.Dispose();
-                _cascade = null;
+                _faceCascade?.Dispose();
+                _eyeCascade?.Dispose();
+                _smileCascade?.Dispose();
             }
         }
     }

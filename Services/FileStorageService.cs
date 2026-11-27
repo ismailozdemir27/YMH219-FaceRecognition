@@ -53,6 +53,11 @@ namespace FaceRecognition.Services
         /// <summary>
         /// Yüz tanıma olaylarını StreamWriter kullanarak detaylı UTF-8 raporu olarak kaydeder.
         /// </summary>
+        public bool ExportDetectionHistoryReport(string filePath, IReadOnlyList<DetectedFace> faces)
+        {
+            return SaveRecognitionLogToFile(filePath, faces);
+        }
+
         public bool SaveRecognitionLogToFile(string filePath, IReadOnlyList<DetectedFace> faces, string studentInfo = "İsmail Özdemir - 250541109")
         {
             try
