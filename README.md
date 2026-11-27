@@ -2,7 +2,7 @@
 
 Bu proje, **Kocaeli Üniversitesi Bilgisayar Mühendisliği** Bölümü **YMH 219 Nesne Tabanlı Programlama Laboratuvarı** 5. ve son ek uygulama ödevi kapsamında geliştirilmiştir.
 
-Uygulama; web kamerası veya statik görsel kaynaklarından gerçek zamanlı yüz tespiti (Face Detection), tespit edilen yüzlerin öznitelik çıkarımı yapılarak eğitilmiş profillerle eşleştirilmesi (Face Recognition), yeni yüzlerin sisteme dinamik olarak kaydedilmesi ve zaman damgalı raporlama yeteneklerini modern, nesne yönelimli ve kullanıcı dostu bir Windows Forms arayüzünde sunar.
+Uygulama; web kamerası veya statik görsel kaynaklarından gerçek zamanlı yüz tespiti (Face Detection), tespit edilen yüzlerin öznitelik çıkarımı yapılarak eğitilmiş profillerle eşleştirilmesi (Face Recognition), yeni yüzlerin sisteme dinamik olarak kaydedilmesi, canlılık tespiti (Anti-Spoofing), gülümseme algılama, Türkçe sesli karşılama (TTS) ve güvenlik alarmı yeteneklerini modern, nesne yönelimli ve kullanıcı dostu bir Windows Forms arayüzünde sunar.
 
 ---
 
@@ -15,40 +15,56 @@ Uygulama; web kamerası veya statik görsel kaynaklarından gerçek zamanlı yü
 
 ---
 
-## 🚀 Temel Özellikler
+## 🚀 Temel ve İleri Seviye Özellikler
 
-1. **Çoklu Görüntü Kaynağı Desteği:**
-   * **Web Kamerası (Canlı Akış):** `VideoCapture` motoru ile arka planda asenkron kare yakalama, canlı FPS ölçümü ve sıfır UI donması.
-   * **Statik Fotoğraf Testi:** Kamera bulunmayan sistemlerde fotoğraf dosyaları (`.jpg`, `.png`, `.bmp`) seçilerek tam yüz algılama ve tanıma testi yapabilme.
+1. **Çoklu Görüntü Kaynağı ve Kamera Yönetimi:**
+   * **DirectShow Öncelikli Kamera Motoru:** Windows işletim sisteminde donanım uyumluluğunu en üst düzeye çıkaran `DirectShow (DSHOW)` tabanlı video yakalama ve `Media Foundation (MSMF)` yedeği.
+   * **Kamera Seçim Kutusu:** Birden fazla kamera içeren sistemlerde Kamera #0 (Dahili HD Webcam) ve Kamera #1 (Harici USB Kamera) arasında dinamik geçiş.
+   * **🎮 Sanal Kamera (Test Simülatörü):** Fiziksel web kamerası bulunmayan veya kamerası başka bir uygulama tarafından meşgul edilen ortamlarda; canlı hareket eden, göz kırpan ve gülümseyen sentetik yüz simülasyonu ile uygulamanın tüm özelliklerini sıfır donanım engeliyle test edebilme.
+   * **Statik Fotoğraf Testi:** Dosya yöneticisinden fotoğraf (`.jpg`, `.png`, `.bmp`) seçerek çoklu yüz algılama ve tanıma testi yapabilme.
 
-2. **Haar Cascade Tabanlı Yüz Algılama (Detection):**
-   * OpenCV'nin kanıtlanmış `haarcascade_frontalface_default.xml` modeli kullanılarak gerçek zamanlı yüz koordinatlarının bulunması.
-   * Arayüz üzerinden anlık ayarlanabilen **Ölçek Çarpanı (ScaleFactor)** ve **Asgari Komşu Sayısı (MinNeighbors)** kaydırıcıları ile algılama hassasiyetini dinamik yapılandırma.
+2. **Haar Cascade Tabanlı Yüz, Göz ve Gülümseme Tespiti:**
+   * OpenCV'nin `haarcascade_frontalface_default.xml` modeliyle gerçek zamanlı çoklu yüz koordinatlarının bulunması.
+   * Arayüz üzerinden canlı ayarlanabilen **Ölçek Çarpanı (ScaleFactor)** ve **Asgari Komşu Sayısı (MinNeighbors)** kaydırıcıları ile algılama hassasiyetini dinamik yapılandırma.
    * Algılanan her yüzün etrafına renkli sınırlayıcı kutu (Bounding Box) çizilmesi ve üst bilgi etiketinin (İsim + % Güven) yerleştirilmesi.
 
-3. **Öznitelik Çıkarımı ve Histogram Tabanlı Yüz Tanıma (Recognition):**
+3. **Öznitelik Çıkarımı ve Histogram Tabanlı Yüz Tanıma:**
    * Algılanan yüz bölgesinin 100x100 boyutuna ölçeklenmesi, gri seviyeye dönüştürülmesi ve histogram eşitleme (Histogram Equalization) ile ışık normalizasyonu.
    * Yüzün 8x8 ızgaraya bölünerek 64 yerel alt hücre üzerinden 16-bin normalize histogram çıkarılmasıyla **1024 boyutlu öznitelik vektörü** üretilmesi.
    * Vektörler arası **Chi-Square Distance** metriği ile benzerlik hesaplama, eşik değeri (Match Threshold) analizi ve %0 - %100 arası güven skoru üretimi.
 
-4. **Yeni Kişi Eğitme ve Model Güncelleme:**
-   * İster canlı kamera karesinden tek tıkla (`Kare Yakala & Eğit`), ister dosyadaki fotoğraftan yüz kırpılarak yeni kişi profilleri ekleme.
-   * Yeni profil eklendiğinde modelin çalışma zamanında anında güncellenmesi ve yeniden derleme gerektirmemesi.
+4. **🛡️ Canlılık Tespiti ve Sahtecilik Önleme (Liveness / Anti-Spoofing):**
+   * `haarcascade_eye.xml` modeli kullanılarak yüz bölgesindeki açık gözler ve kırpma hareketleri taranır.
+   * Ekrana tutulan cansız fotoğraf ile gerçek canlı insan arasındaki fark analiz edilir; doğrulanmış canlı yüzlerde yeşil `CANLI [OK]` rozeti gösterilir.
+
+5. **😊 Gülümseme ve Mimik Analizi:**
+   * `haarcascade_smile.xml` modeli entegrasyonuyla yüzün ağız bölgesindeki tebessüm ve gülümseme mimikleri gerçek zamanlı tespit edilerek görsel `GULUMSEME :)` rozeti eklenir.
+
+6. **🔊 Türkçe Sesli Karşılama ve Güvenlik Anonsu (TTS):**
+   * `System.Speech` sentezleyici motoru ile tanınan kişi kameraya girdiğinde adıyla Türkçe sesli karşılama: *"Hoş geldiniz İsmail Bey. Sistem sizi tanıdı."*
+   * Bilinmeyen bir kişi algılandığında sesli uyarı: *"Dikkat: Tanımlanamayan kişi algılandı."*
+   * Tekrarlayan anons kirliliğini önleyen kişi bazlı akıllı soğuma (cooldown) mekanizması.
+
+7. **🚨 Güvenlik Alarm Modu:**
+   * Bilinmeyen bir kişi kameranın karşısında 3 saniyeden uzun süre kaldığında video çerçevesi kırmızı renkle yanıp söner, sesli alarm çalar ve şüpheli anlık kare `Alerts/` klasörüne otomatik arşivlenir.
+
+8. **🌙 Koyu / ☀️ Açık Tema Desteği:**
+   * Tek tıkla modern koyu tema (Slate-900 / Dark UI) ile açık tema (Slate-100 / Light UI) arasında kusursuz geçiş.
+
+9. **Yeni Kişi Eğitme ve Model Güncelleme:**
+   * Canlı kamera karesinden (`Kareyi Eğit`) veya seçilen fotoğraftan yüz kırpılarak yeni kişi profilleri ekleme ve veri setini anında genişletme.
    * Kılavuz gereksinimi doğrultusunda başlangıçta tanımlı gönüllü profilleri: `İsmail Özdemir`, `Ahmet Yılmaz`, `Ayşe Demir`.
 
-5. **Kırpılmış Yüz Arşivi ve Otomatik Kayıt:**
-   * `Otomatik Yüz Kaydı` seçeneği aktif edildiğinde tespit edilen yüzlerin `CroppedFaces/` dizinine zaman damgalı PNG dosyaları olarak otomatik arşivlenmesi.
-
-6. **Zaman Damgalı Algılama Geçmişi ve Raporlama:**
-   * Canlı akışta tanınan tüm yüzlerin sıra numarası, zaman damgası (HH:mm:ss), kişi adı ve güven oranı ile `DataGridView` üzerinde listelenmesi.
-   * Tüm geçmişin tek tıkla zaman damgalı metin raporu (`.txt`) olarak dışa aktarılabilmesi (`StreamWriter`).
+10. **Kırpılmış Yüz Arşivi ve Raporlama:**
+    * `Otomatik Yüz Kaydı` seçeneğiyle algılanan yüzlerin `CroppedFaces/` dizinine zaman damgalı PNG olarak kaydedilmesi.
+    * Algılama ve tanıma geçmişinin tek tıkla zaman damgalı `.txt` raporu olarak dışa aktarılması (`StreamWriter`).
 
 ---
 
 ## 📸 Ekran Görüntüleri
 
-### 1. Canlı Yüz Algılama ve Tanıma Ana Paneli
-Uygulamanın canlı video akışında çoklu yüzleri tespit ettiği, isim ve güven oranlarını etiketlediği ve sağ panelde algılama geçmişini listelediği ekran:
+### 1. Canlı Yüz Algılama, Canlılık ve Tanıma Ana Paneli
+Uygulamanın canlı video akışında çoklu yüzleri tespit ettiği, isim ve güven oranlarını etiketlediği, canlılık ve mimik durumunu rozetlediği ve sağ panelde tüm gelişmiş ayarları sunduğu arayüz:
 
 ![Canlı Yüz Algılama ve Tanıma Paneli](screenshots/live_detection.png)
 
@@ -63,12 +79,17 @@ Seçilen fotoğraf veya dondurulan kareden kırpılan yüzün normalize edilip y
 
 * **Programlama Dili:** C# 12
 * **Hedef Platform:** .NET 8.0 (Windows x64)
-* **Kullanıcı Arayüzü:** Windows Forms (Modern flat UI tasarımı, duyarlı panel yerleşimi)
+* **Kullanıcı Arayüzü:** Windows Forms (Modern flat UI tasarımı, Dark/Light tema)
 * **Görüntü İşleme ve Bilgisayarlı Görü:**
-  * `OpenCvSharp4` (v4.10.0.20241108)
+  * `OpenCvSharp4` (v4.13.0)
   * `OpenCvSharp4.Windows` (C++ OpenCvSharpExtern yerel bağımlılıkları)
   * `OpenCvSharp4.Extensions` (Bitmap / Mat çift yönlü dönüştürücüler)
-* **Model Dosyası:** `haarcascade_frontalface_default.xml` (Resmi OpenCV Haar Cascade Sınıflandırıcısı)
+* **Ses Sentezleme:**
+  * `System.Speech` (Windows TTS motoru, Türkçe ses sentezleme)
+* **Haar Cascade Model Dosyaları:**
+  * `haarcascade_frontalface_default.xml` (Yüz Tespiti)
+  * `haarcascade_eye.xml` (Göz ve Canlılık Tespiti)
+  * `haarcascade_smile.xml` (Gülümseme ve Mimik Tespiti)
 
 ---
 
@@ -82,21 +103,25 @@ FaceRecognition/
 │   ├── CameraStatus.cs           # Kamera durumu (Stopped, Running, Error)
 │   └── CaptureSource.cs          # Görüntü kaynağı (None, Camera, StaticImage)
 ├── Models/
-│   ├── DetectedFace.cs           # Algılanan yüzün kutu, etiket ve zaman verisi
+│   ├── DetectedFace.cs           # Algılanan yüzün kutu, etiket, canlılık, mimik ve zaman verisi
 │   ├── PersonProfile.cs          # Eğitilen kişinin adı, ID ve öznitelik vektörleri
 │   └── RecognitionResult.cs      # Tanıma sonucu, güven yüzdesi ve mesafe
 ├── Services/
-│   ├── CameraService.cs          # VideoCapture arka plan döngüsü ve FPS yönetimi
-│   ├── FaceDetectionService.cs   # Haar Cascade tespiti ve görsel çizim servisi
+│   ├── CameraService.cs          # DirectShow, MSMF ve Sanal Kamera simülasyonu
+│   ├── FaceDetectionService.cs   # Haar Cascade yüz, göz, gülümseme ve etiket çizim servisi
 │   ├── FaceRecognitionService.cs # 8x8 Izgara histogramı ve Chi-Square tanıma motoru
-│   └── FileStorageService.cs     # Kırpılan yüzlerin ve metin raporlarının kaydı
+│   ├── FileStorageService.cs     # Kırpılan yüzlerin ve metin raporlarının kaydı
+│   ├── SecurityAlarmService.cs   # Bilinmeyen kişi güvenlik alarmı ve delil kaydı
+│   └── VoiceAnnouncerService.cs  # Türkçe Text-to-Speech sesli karşılama servisi
 ├── Forms/
-│   ├── MainForm.cs               # Ana operasyonel kontrol paneli
-│   ├── MainForm.Designer.cs      # Modern arayüz bileşenleri
+│   ├── MainForm.cs               # Ana operasyonel kontrol paneli ve tema yönetimi
+│   ├── MainForm.Designer.cs      # Modern arayüz bileşenleri ve kontroller
 │   ├── TrainFaceDialog.cs        # Yeni kişi eğitme ve önizleme formu
 │   └── TrainFaceDialog.Designer.cs
 ├── Program.cs                    # Uygulama başlangıç noktası ve ekran görüntüsü simülasyonu
-├── haarcascade_frontalface_default.xml # Önceden eğitilmiş model dosyası
+├── haarcascade_frontalface_default.xml # Yüz sınıflandırıcı modeli
+├── haarcascade_eye.xml                # Göz ve canlılık sınıflandırıcı modeli
+├── haarcascade_smile.xml              # Gülümseme sınıflandırıcı modeli
 └── FaceRecognition.csproj
 ```
 
@@ -115,7 +140,7 @@ FaceRecognition/
    cd "YMH219-FaceRecognition"
    ```
 
-2. Projeyi derleyiniz ve bağımlılıkları yükleyiniz:
+2. Projeyi derleyiniz:
    ```bash
    dotnet build
    ```
@@ -139,13 +164,5 @@ Oluşan `publish/FaceRecognition.exe` dosyası doğrudan çift tıklanarak çal�
 Kılavuzun 6. Bölümünde belirtilen etik ve yasal gereksinimler gereğince:
 
 * **Tamamen Çevrimdışı (Offline) Çalışma:** Uygulama hiçbir harici bulut servisine, internet sunucusuna veya üçüncü taraf API'ye veri göndermez.
-* **Biyometrik Veri Mahremiyeti (KVKK Uyumu):** Canlı akışta çıkarılan öznitelik vektörleri ve kırpılan yüz görüntüleri yalnızca yerel diskte (`CroppedFaces/`) saklanır ve kullanıcının açık rızası olmadan harici kaynaklara aktarılmaz.
+* **Biyometrik Veri Mahremiyeti (KVKK Uyumu):** Canlı akışta çıkarılan öznitelik vektörleri ve kırpılan yüz görüntüleri yalnızca yerel diskte (`CroppedFaces/` ve `Alerts/`) saklanır ve kullanıcının açık rızası olmadan harici kaynaklara aktarılmaz.
 * **Varsayılan Test Verisi:** Sistemde yer alan başlangıç profilleri sentetik/gönüllü test verisi olup, gerçek kişisel verileri ihlal etmeyecek şekilde kurgulanmıştır.
-
----
-
-## ⚠️ Sınırlılıklar ve Gelecek Geliştirme Önerileri
-
-1. **Aydınlatma ve Poz Hassasiyeti:** Haar Cascade algoritması ve histogram eşleştirme, aşırı karanlık veya aşırı parlak ortamlarda ve yüzün kameraya 45 dereceden fazla açılı durduğu durumlarda tespit oranında düşüş yaşayabilir.
-2. **Derin Öğrenme (DNN) Geliştirmesi:** Gelecek sürümlerde OpenCV'nin DNN modülü (örneğin SSD-MobileNet veya YuNet) ve FaceNet / ArcFace gömme (embedding) vektörleri entegre edilerek doğruluk oranı %99'un üzerine çıkarılabilir.
-3. **Canlılık Tespiti (Anti-Spoofing):** Fotoğraftan veya ekrandan yanıltıcı yüz gösterimlerini engellemek için göz kırpma veya kafa hareketi tabanlı liveness detection eklenebilir.
