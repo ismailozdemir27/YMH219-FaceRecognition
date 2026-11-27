@@ -42,7 +42,7 @@ namespace FaceRecognition
                 using (MainForm form = new MainForm())
                 {
                     form.Show();
-                    form.Size = new System.Drawing.Size(1120, 700);
+                    form.Size = new System.Drawing.Size(1160, 724);
 
                     var pbVideo = form.Controls.Find("pbVideoFeed", true).FirstOrDefault() as PictureBox;
                     var lblStatus = form.Controls.Find("lblCameraStatus", true).FirstOrDefault() as Label;
@@ -70,6 +70,8 @@ namespace FaceRecognition
                     Cv2.Rectangle(simMat, box1, new OpenCvSharp.Scalar(34, 197, 94), 2);
                     Cv2.Rectangle(simMat, new Rect(140, 72, 180, 26), new OpenCvSharp.Scalar(34, 197, 94), -1);
                     Cv2.PutText(simMat, "Ismail Ozdemir (95.4%)", new OpenCvSharp.Point(145, 90), HersheyFonts.HersheySimplex, 0.48, OpenCvSharp.Scalar.White, 1);
+                    Cv2.PutText(simMat, "CANLI [OK]", new OpenCvSharp.Point(140, 305), HersheyFonts.HersheySimplex, 0.42, new OpenCvSharp.Scalar(34, 197, 94), 1);
+                    Cv2.PutText(simMat, "GULUMSEME :)", new OpenCvSharp.Point(245, 305), HersheyFonts.HersheySimplex, 0.42, new OpenCvSharp.Scalar(251, 146, 60), 1);
 
                     // Yüz 2 (Ahmet Yılmaz)
                     var box2 = new Rect(380, 120, 150, 180);
@@ -80,6 +82,7 @@ namespace FaceRecognition
                     Cv2.Rectangle(simMat, box2, new OpenCvSharp.Scalar(34, 197, 94), 2);
                     Cv2.Rectangle(simMat, new Rect(380, 92, 175, 26), new OpenCvSharp.Scalar(34, 197, 94), -1);
                     Cv2.PutText(simMat, "Ahmet Yilmaz (91.8%)", new OpenCvSharp.Point(385, 110), HersheyFonts.HersheySimplex, 0.48, OpenCvSharp.Scalar.White, 1);
+                    Cv2.PutText(simMat, "CANLI [OK]", new OpenCvSharp.Point(380, 315), HersheyFonts.HersheySimplex, 0.42, new OpenCvSharp.Scalar(34, 197, 94), 1);
 
                     if (pbVideo != null)
                     {
@@ -88,10 +91,10 @@ namespace FaceRecognition
 
                     if (dgv != null)
                     {
-                        dgv.Rows.Add(4, DateTime.Now.AddSeconds(-1).ToString("HH:mm:ss"), "İsmail Özdemir", "%95.4");
-                        dgv.Rows.Add(3, DateTime.Now.AddSeconds(-2).ToString("HH:mm:ss"), "Ahmet Yılmaz", "%91.8");
-                        dgv.Rows.Add(2, DateTime.Now.AddSeconds(-8).ToString("HH:mm:ss"), "İsmail Özdemir", "%94.8");
-                        dgv.Rows.Add(1, DateTime.Now.AddSeconds(-15).ToString("HH:mm:ss"), "Ayşe Demir", "%89.2");
+                        dgv.Rows.Add(4, DateTime.Now.AddSeconds(-1).ToString("HH:mm:ss"), "İsmail Özdemir", "%95.4", "✅", "😊 Tebessüm");
+                        dgv.Rows.Add(3, DateTime.Now.AddSeconds(-2).ToString("HH:mm:ss"), "Ahmet Yılmaz", "%91.8", "✅", "Normal");
+                        dgv.Rows.Add(2, DateTime.Now.AddSeconds(-8).ToString("HH:mm:ss"), "İsmail Özdemir", "%94.8", "✅", "😊 Tebessüm");
+                        dgv.Rows.Add(1, DateTime.Now.AddSeconds(-15).ToString("HH:mm:ss"), "Ayşe Demir", "%89.2", "✅", "Normal");
                     }
                     if (grpDet != null) grpDet.Text = "🎯 Canlı Algılama ve Tanıma Geçmişi (4)";
 

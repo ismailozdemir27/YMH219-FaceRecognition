@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -17,11 +18,14 @@ namespace FaceRecognition.Forms
         private readonly FaceRecognitionService _recognitionService;
         private readonly CameraService _cameraService;
         private readonly FileStorageService _storageService;
+        private readonly VoiceAnnouncerService _voiceService;
+        private readonly SecurityAlarmService _alarmService;
 
         private Mat? _lastRawFrame;
         private readonly List<DetectedFace> _detectionHistory = new List<DetectedFace>();
         private int _detectionCounter = 0;
         private DateTime _lastAutoSaveTime = DateTime.MinValue;
+        private bool _isDarkTheme = true;
 
         public MainForm()
         {
@@ -31,7 +35,10 @@ namespace FaceRecognition.Forms
             _recognitionService = new FaceRecognitionService();
             _cameraService = new CameraService();
             _storageService = new FileStorageService();
+            _voiceService = new VoiceAnnouncerService();
+            _alarmService = new SecurityAlarmService();
 
+            InitializeCameraDropdown();
             InitializeDetectionsGrid();
             RefreshProfilesList();
             BindEvents();
@@ -44,10 +51,11 @@ namespace FaceRecognition.Forms
         {
             UpdateCameraStatusUI(CameraStatus.Stopped, "Kamera Kapalı");
             UpdateSensitivityLabels();
+            ApplyTheme(_isDarkTheme);
 
             if (!_detectionService.IsLoaded)
             {
-                lblFooterStatus.Text = "⚠ Haar Cascade model dosyası yüklenemedi!";
+                lblFooterStatus.Text = "⚠ Haar Cascade yüz modeli yüklenemedi!";
                 lblFooterStatus.ForeColor = Color.Red;
             }
         }
@@ -57,11 +65,21 @@ namespace FaceRecognition.Forms
             _cameraService.Stop();
             _cameraService.Dispose();
             _detectionService.Dispose();
+            _voiceService.Dispose();
             _lastRawFrame?.Dispose();
             pbVideoFeed.Image?.Dispose();
         }
 
-        #region --- GRİD VE LİSTE BAĞLANTILARI ---
+        #region --- BAŞLANGIÇ AYARLARI VE LİSTELER ---
+
+        private void InitializeCameraDropdown()
+        {
+            cmbCameraDevice.Items.Clear();
+            cmbCameraDevice.Items.Add(new CameraDeviceItem(0, "Kamera #0 (Dahili HD Webcam)"));
+            cmbCameraDevice.Items.Add(new CameraDeviceItem(1, "Kamera #1 (Harici USB Kamera)"));
+            cmbCameraDevice.Items.Add(new CameraDeviceItem(-1, "🎮 Sanal Kamera (Test Simülatörü)"));
+            cmbCameraDevice.SelectedIndex = 0;
+        }
 
         private void InitializeDetectionsGrid()
         {
@@ -71,27 +89,41 @@ namespace FaceRecognition.Forms
             {
                 Name = "colId",
                 HeaderText = "#",
-                Width = 40
+                Width = 35
             });
 
             dgvDetections.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "colTime",
                 HeaderText = "Zaman",
-                Width = 90
+                Width = 70
             });
 
             dgvDetections.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "colName",
                 HeaderText = "Kişi / Etiket",
-                Width = 140
+                Width = 115
             });
 
             dgvDetections.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "colConfidence",
                 HeaderText = "Güven",
+                Width = 65
+            });
+
+            dgvDetections.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "colLive",
+                HeaderText = "Canlı",
+                Width = 50
+            });
+
+            dgvDetections.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "colSmile",
+                HeaderText = "Mimik",
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
             });
         }
@@ -127,22 +159,58 @@ namespace FaceRecognition.Forms
             _cameraService.OnError += Camera_OnError;
             _detectionService.OnError += Detection_OnError;
 
+            _alarmService.OnAlarmTriggered += msg =>
+            {
+                if (InvokeRequired)
+                {
+                    BeginInvoke(new Action(() => lblFooterStatus.Text = msg));
+                }
+                else
+                {
+                    lblFooterStatus.Text = msg;
+                }
+            };
+
+            _alarmService.OnAlarmCleared += () =>
+            {
+                if (InvokeRequired)
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        pnlVideoContainer.BackColor = _isDarkTheme ? Color.FromArgb(15, 23, 42) : Color.FromArgb(241, 245, 249);
+                        lblFooterStatus.Text = "Hazır | Canlı Yüz Tanıma Aktif";
+                    }));
+                }
+                else
+                {
+                    pnlVideoContainer.BackColor = _isDarkTheme ? Color.FromArgb(15, 23, 42) : Color.FromArgb(241, 245, 249);
+                    lblFooterStatus.Text = "Hazır | Canlı Yüz Tanıma Aktif";
+                }
+            };
+
             // Kamera Başlat / Durdur
             btnStartCamera.Click += (s, e) =>
             {
+                int selectedIndex = 0;
+                if (cmbCameraDevice.SelectedItem is CameraDeviceItem item)
+                {
+                    selectedIndex = item.Index;
+                }
+
                 btnStartCamera.Enabled = false;
-                _cameraService.Start(0);
+                _cameraService.Start(selectedIndex);
             };
 
             btnStopCamera.Click += (s, e) =>
             {
                 _cameraService.Stop();
+                _alarmService.Reset();
             };
 
-            // Görüntü Dosyası Seçme
+            // Resim Seçme
             btnSelectImage.Click += BtnSelectImage_Click;
 
-            // Kare Yakala & Eğit
+            // Kareyi Eğit
             btnCaptureSnapshot.Click += (s, e) =>
             {
                 if (_lastRawFrame == null || _lastRawFrame.Empty())
@@ -151,7 +219,6 @@ namespace FaceRecognition.Forms
                     return;
                 }
 
-                // Yakalanan kareden yüz tespit et
                 var faces = _detectionService.DetectFaces(_lastRawFrame);
                 Mat? faceMat = null;
                 if (faces.Length > 0)
@@ -159,8 +226,8 @@ namespace FaceRecognition.Forms
                     faceMat = _detectionService.ExtractNormalizedFace(_lastRawFrame, faces[0]);
                 }
 
-                using var dlg = new TrainFaceDialog(_detectionService, _recognitionService, faceMat);
-                if (dlg.ShowDialog(this) == DialogResult.OK)
+                using var trainDlg = new TrainFaceDialog(_detectionService, _recognitionService, faceMat);
+                if (trainDlg.ShowDialog(this) == DialogResult.OK)
                 {
                     RefreshProfilesList();
                 }
@@ -169,29 +236,29 @@ namespace FaceRecognition.Forms
             // Yeni Kişi Eğit Butonu
             btnOpenTrainDialog.Click += (s, e) =>
             {
-                using var dlg = new TrainFaceDialog(_detectionService, _recognitionService);
-                if (dlg.ShowDialog(this) == DialogResult.OK)
+                using var trainDlg = new TrainFaceDialog(_detectionService, _recognitionService, null);
+                if (trainDlg.ShowDialog(this) == DialogResult.OK)
                 {
                     RefreshProfilesList();
                 }
             };
 
-            // Hassasiyet kaydırıcıları
-            tbScaleFactor.ValueChanged += (s, e) => UpdateSensitivityLabels();
-            tbNeighbors.ValueChanged += (s, e) => UpdateSensitivityLabels();
-
-            // Profilleri sıfırlama
-            btnResetProfiles.Click += (s, e) =>
+            // Tema Değiştirme
+            btnThemeToggle.Click += (s, e) =>
             {
-                if (MessageBox.Show("Varsayılan gönüllü profillerini (İsmail Özdemir, Ahmet Yılmaz, Ayşe Demir) yeniden yüklemek istiyor musunuz?", "Profilleri Sıfırla", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                {
-                    _recognitionService.ClearAllProfiles();
-                    _recognitionService.SeedDefaultVolunteerProfiles();
-                    RefreshProfilesList();
-                }
+                _isDarkTheme = !_isDarkTheme;
+                ApplyTheme(_isDarkTheme);
             };
 
-            // Rapor dışa aktar
+            // Özellik Tetikleyicileri
+            chkVoiceAnnounce.CheckedChanged += (s, e) => _voiceService.IsEnabled = chkVoiceAnnounce.Checked;
+            chkSecurityAlarm.CheckedChanged += (s, e) => _alarmService.IsEnabled = chkSecurityAlarm.Checked;
+
+            // Hassasiyet Kaydırıcıları
+            tbScaleFactor.Scroll += (s, e) => UpdateSensitivityLabels();
+            tbNeighbors.Scroll += (s, e) => UpdateSensitivityLabels();
+
+            // Rapor Kaydet
             btnExportLog.Click += (s, e) =>
             {
                 if (_detectionHistory.Count == 0)
@@ -202,31 +269,37 @@ namespace FaceRecognition.Forms
 
                 using SaveFileDialog sfd = new SaveFileDialog
                 {
-                    Filter = "Metin Belgesi (*.txt)|*.txt",
-                    FileName = $"YuzTanima_Raporu_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
-                    Title = "Yüz Tanıma Raporunu Kaydet"
+                    Filter = "Metin Dosyası (*.txt)|*.txt",
+                    FileName = $"FaceRecognition_Rapor_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
+                    Title = "Tanıma Geçmişi Raporunu Kaydet"
                 };
 
                 if (sfd.ShowDialog() == DialogResult.OK)
                 {
-                    if (_storageService.SaveRecognitionLogToFile(sfd.FileName, _detectionHistory))
-                    {
+                    bool ok = _storageService.ExportDetectionHistoryReport(sfd.FileName, _detectionHistory);
+                    if (ok)
                         MessageBox.Show($"Rapor başarıyla kaydedildi:\n{sfd.FileName}", "Başarılı", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
                     else
-                    {
                         MessageBox.Show("Dosya kaydedilirken hata oluştu.", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
                 }
             };
 
-            // Tabloyu temizle
+            // Tabloyu Temizle
             btnClearDetections.Click += (s, e) =>
             {
                 _detectionHistory.Clear();
                 dgvDetections.Rows.Clear();
-                _detectionCounter = 0;
                 grpDetections.Text = "🎯 Canlı Algılama ve Tanıma Geçmişi (0)";
+            };
+
+            // Varsayılan Profilleri Sıfırla
+            btnResetProfiles.Click += (s, e) =>
+            {
+                if (MessageBox.Show("Varsayılan gönüllü profillerini (İsmail Özdemir, Ahmet Yılmaz, Ayşe Demir) yeniden yüklemek istiyor musunuz?", "Profilleri Sıfırla", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    _recognitionService.ResetToDefaults();
+                    RefreshProfilesList();
+                }
             };
         }
 
@@ -235,19 +308,15 @@ namespace FaceRecognition.Forms
             using OpenFileDialog ofd = new OpenFileDialog
             {
                 Filter = "Resim Dosyaları (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp|Tüm Dosyalar (*.*)|*.*",
-                Title = "İncelenecek Fotoğrafı Seçin"
+                Title = "Yüz Tespiti ve Tanıma İçin Resim Seçin"
             };
 
             if (ofd.ShowDialog() == DialogResult.OK)
             {
-                // Kamera açıksa durdur
-                if (_cameraService.IsRunning)
-                {
-                    _cameraService.Stop();
-                }
-
                 try
                 {
+                    _cameraService.Stop();
+
                     using var img = Cv2.ImRead(ofd.FileName);
                     if (img.Empty())
                     {
@@ -255,9 +324,12 @@ namespace FaceRecognition.Forms
                         return;
                     }
 
-                    // Statik resmi işle
-                    ProcessSingleFrame(img, 0.0);
-                    lblFooterStatus.Text = $"Dosya incelendi: {Path.GetFileName(ofd.FileName)}";
+                    var clone = img.Clone();
+                    ProcessSingleFrame(clone, 0.0);
+                    clone.Dispose();
+
+                    UpdateCameraStatusUI(CameraStatus.Stopped, "Fotoğraf Yüklendi");
+                    lblFooterStatus.Text = $"Seçilen dosya işlendi: {Path.GetFileName(ofd.FileName)}";
                 }
                 catch (Exception ex)
                 {
@@ -272,17 +344,35 @@ namespace FaceRecognition.Forms
 
         private void Camera_OnFrameCaptured(Mat frame, double fps)
         {
+            if (IsDisposed)
+            {
+                frame.Dispose();
+                return;
+            }
+
             if (InvokeRequired)
             {
                 try
                 {
-                    BeginInvoke(new Action(() => ProcessSingleFrame(frame, fps)));
+                    BeginInvoke(new Action(() =>
+                    {
+                        using (frame)
+                        {
+                            ProcessSingleFrame(frame, fps);
+                        }
+                    }));
                 }
-                catch { }
+                catch
+                {
+                    frame.Dispose();
+                }
                 return;
             }
 
-            ProcessSingleFrame(frame, fps);
+            using (frame)
+            {
+                ProcessSingleFrame(frame, fps);
+            }
         }
 
         private void ProcessSingleFrame(Mat frame, double fps)
@@ -304,6 +394,7 @@ namespace FaceRecognition.Forms
             // 1. Çoklu Yüz Algılama (Haar Cascade)
             Rect[] faceBoxes = _detectionService.DetectFaces(frame);
             var currentFaces = new List<DetectedFace>();
+            bool hasUnknownFace = false;
 
             foreach (var box in faceBoxes)
             {
@@ -322,7 +413,39 @@ namespace FaceRecognition.Forms
                     detected.Recognition = _recognitionService.Predict(normalized);
                     detected.CropBitmap = BitmapConverter.ToBitmap(normalized);
 
-                    // İsteğe bağlı ek özellik: Algılanan yüzü klasöre kaydetme
+                    // Canlılık (Göz) Tespiti
+                    if (chkLiveness.Checked)
+                    {
+                        var eyes = _detectionService.DetectEyes(normalized);
+                        detected.EyesCount = eyes.Length;
+                        detected.IsLive = eyes.Length >= 1 || _cameraService.IsVirtualCamera;
+                    }
+
+                    // Gülümseme (Mimik) Tespiti
+                    if (chkSmileDetect.Checked)
+                    {
+                        detected.IsSmiling = _detectionService.DetectSmile(normalized);
+                    }
+
+                    // Sesli Karşılama (TTS)
+                    if (chkVoiceAnnounce.Checked)
+                    {
+                        if (detected.Recognition.IsRecognized)
+                        {
+                            _voiceService.AnnounceRecognized(detected.Recognition.Label);
+                        }
+                        else
+                        {
+                            _voiceService.AnnounceUnknown();
+                        }
+                    }
+
+                    if (!detected.Recognition.IsRecognized)
+                    {
+                        hasUnknownFace = true;
+                    }
+
+                    // Otomatik Yüz Kaydı
                     if (chkAutoSaveFaces.Checked && (DateTime.Now - _lastAutoSaveTime).TotalSeconds >= 1.5)
                     {
                         _storageService.SaveCroppedFace(detected.CropBitmap, detected.Recognition.Label, detected.Recognition.Confidence);
@@ -334,18 +457,42 @@ namespace FaceRecognition.Forms
                 _detectionHistory.Insert(0, detected);
 
                 // Tabloya ekle (Maksimum son 100 kayıt)
-                dgvDetections.Rows.Insert(0, detected.Id, detected.Timestamp.ToString("HH:mm:ss"), detected.Recognition.Label, detected.Recognition.ConfidencePercentage);
+                dgvDetections.Rows.Insert(0, 
+                    detected.Id, 
+                    detected.Timestamp.ToString("HH:mm:ss"), 
+                    detected.Recognition.Label, 
+                    detected.Recognition.ConfidencePercentage,
+                    detected.IsLive ? "✅" : "⏳",
+                    detected.IsSmiling ? "😊 Tebessüm" : "Normal"
+                );
+
                 if (dgvDetections.Rows.Count > 100)
                 {
                     dgvDetections.Rows.RemoveAt(dgvDetections.Rows.Count - 1);
                 }
             }
 
+            // Güvenlik Alarmı Değerlendirmesi
+            if (chkSecurityAlarm.Checked)
+            {
+                using var currentBmp = BitmapConverter.ToBitmap(frame);
+                _alarmService.EvaluateFrame(hasUnknownFace, currentBmp);
+
+                if (_alarmService.IsAlarmActive)
+                {
+                    pnlVideoContainer.BackColor = Color.FromArgb(220, 38, 38); // Kırmızı alarm çerçevesi
+                }
+                else
+                {
+                    pnlVideoContainer.BackColor = _isDarkTheme ? Color.FromArgb(15, 23, 42) : Color.FromArgb(241, 245, 249);
+                }
+            }
+
             grpDetections.Text = $"🎯 Canlı Algılama ve Tanıma Geçmişi ({_detectionHistory.Count})";
             lblFaceCount.Text = $"👥 ({faceBoxes.Length})";
 
-            // 3. Görsel çerçeveleri ve etiketleri kareye çiz
-            _detectionService.DrawFaceOverlays(frame, currentFaces);
+            // 3. Görsel çerçeveleri, canlılık ve mimik rozetlerini kareye çiz
+            _detectionService.DrawFaceOverlays(frame, currentFaces, chkLiveness.Checked, chkSmileDetect.Checked);
 
             // 4. PictureBox üzerinde göster
             var oldBmp = pbVideoFeed.Image;
@@ -373,7 +520,9 @@ namespace FaceRecognition.Forms
                     lblCameraStatus.BackColor = Color.FromArgb(22, 163, 74);
                     btnStartCamera.Enabled = false;
                     btnStopCamera.Enabled = true;
-                    lblFooterStatus.Text = "Kamera aktif. Canlı yüz algılama ve tanıma çalışıyor...";
+                    lblFooterStatus.Text = _cameraService.IsVirtualCamera 
+                        ? "Sanal Test Kamerası devrede. Canlı yüz simülasyonu çalışıyor..."
+                        : "Fiziksel kamera aktif. Canlı yüz algılama, canlılık ve tanıma çalışıyor...";
                     break;
 
                 case CameraStatus.Stopped:
@@ -382,7 +531,7 @@ namespace FaceRecognition.Forms
                     btnStartCamera.Enabled = true;
                     btnStopCamera.Enabled = false;
                     lblFps.Text = "0.0 FPS";
-                    lblFooterStatus.Text = "Kamera kapalı. Başlatmak için 'Kamera Başlat' butonuna basınız.";
+                    lblFooterStatus.Text = "Kamera kapalı. Başlatmak için 'Başlat' butonuna basınız.";
                     break;
 
                 case CameraStatus.Error:
@@ -390,7 +539,7 @@ namespace FaceRecognition.Forms
                     lblCameraStatus.BackColor = Color.FromArgb(220, 38, 38);
                     btnStartCamera.Enabled = true;
                     btnStopCamera.Enabled = false;
-                    lblFooterStatus.Text = "Kamera açılamadı. 'Görüntü Seç' butonu ile fotoğraf testi yapabilirsiniz.";
+                    lblFooterStatus.Text = "Kamera açılamadı. Dropdown'dan 'Sanal Kamera' seçerek testi hemen sürdürebilirsiniz.";
                     break;
             }
         }
@@ -418,5 +567,73 @@ namespace FaceRecognition.Forms
         }
 
         #endregion
+
+        #region --- TEMA YÖNETİMİ (DARK / LIGHT THEME) ---
+
+        private void ApplyTheme(bool isDark)
+        {
+            btnThemeToggle.Text = isDark ? "☀️ Açık Mod" : "🌙 Koyu Mod";
+
+            Color bgColor = isDark ? Color.FromArgb(15, 23, 42) : Color.FromArgb(248, 250, 252);
+            Color panelColor = isDark ? Color.FromArgb(30, 41, 59) : Color.FromArgb(241, 245, 249);
+            Color textColor = isDark ? Color.White : Color.FromArgb(15, 23, 42);
+            Color subTextColor = isDark ? Color.FromArgb(203, 213, 225) : Color.FromArgb(51, 65, 85);
+            Color groupBorderColor = isDark ? Color.FromArgb(51, 65, 85) : Color.FromArgb(203, 213, 225);
+
+            this.BackColor = bgColor;
+            pnlSideDashboard.BackColor = bgColor;
+            pnlVideoContainer.BackColor = bgColor;
+
+            // Grup kutuları
+            GroupBox[] groups = { grpProfiles, grpFeatures, grpSettings, grpDetections };
+            foreach (var grp in groups)
+            {
+                grp.ForeColor = textColor;
+                grp.BackColor = bgColor;
+            }
+
+            // Checkbox'lar
+            CheckBox[] checks = { chkVoiceAnnounce, chkLiveness, chkSmileDetect, chkSecurityAlarm, chkAutoSaveFaces };
+            foreach (var chk in checks)
+            {
+                if (chk != chkSecurityAlarm) chk.ForeColor = subTextColor;
+            }
+
+            // Listeler & Tablolar
+            lstProfiles.BackColor = panelColor;
+            lstProfiles.ForeColor = textColor;
+
+            dgvDetections.BackgroundColor = panelColor;
+            dgvDetections.DefaultCellStyle.BackColor = panelColor;
+            dgvDetections.DefaultCellStyle.ForeColor = textColor;
+            dgvDetections.ColumnHeadersDefaultCellStyle.BackColor = isDark ? Color.FromArgb(51, 65, 85) : Color.FromArgb(226, 232, 240);
+            dgvDetections.ColumnHeadersDefaultCellStyle.ForeColor = textColor;
+
+            // Etiketler
+            lblScaleFactor.ForeColor = subTextColor;
+            lblScaleFactorVal.ForeColor = textColor;
+            lblNeighbors.ForeColor = subTextColor;
+            lblNeighborsVal.ForeColor = textColor;
+
+            statusStrip.BackColor = isDark ? Color.FromArgb(30, 41, 59) : Color.FromArgb(226, 232, 240);
+            lblFooterStatus.ForeColor = subTextColor;
+            lblFooterStudent.ForeColor = textColor;
+        }
+
+        #endregion
+
+        private class CameraDeviceItem
+        {
+            public int Index { get; }
+            public string Name { get; }
+
+            public CameraDeviceItem(int index, string name)
+            {
+                Index = index;
+                Name = name;
+            }
+
+            public override string ToString() => Name;
+        }
     }
 }
